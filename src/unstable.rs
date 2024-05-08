@@ -55,41 +55,6 @@ pub trait LittleEndianWriteExt: Write {
 
 impl<W: Write> LittleEndianWriteExt for W {}
 
-/// Async version of LittleEndianWriteExt
-#[cfg(feature = "tokio")]
-pub trait AsyncLittleEndianWriteExt: AsyncWrite + Unpin {
-    fn write_u16_le(&mut self, input: u16) -> impl Future<Output = io::Result<()>> + Send
-    where
-        Self: Send,
-    {
-        async move { self.write_all(&input.to_le_bytes()).await }
-    }
-
-    fn write_u32_le(&mut self, input: u32) -> impl Future<Output = io::Result<()>> + Send
-    where
-        Self: Send,
-    {
-        async move { self.write_all(&input.to_le_bytes()).await }
-    }
-
-    fn write_u64_le(&mut self, input: u64) -> impl Future<Output = io::Result<()>> + Send
-    where
-        Self: Send,
-    {
-        async move { self.write_all(&input.to_le_bytes()).await }
-    }
-
-    fn write_u128_le(&mut self, input: u128) -> impl Future<Output = io::Result<()>> + Send
-    where
-        Self: Send,
-    {
-        async move { self.write_all(&input.to_le_bytes()).await }
-    }
-}
-
-#[cfg(feature = "tokio")]
-impl<W: AsyncWrite + Unpin> AsyncLittleEndianWriteExt for W {}
-
 /// Helper methods for reading unsigned integers in little-endian form.
 pub trait LittleEndianReadExt: Read {
     fn read_u16_le(&mut self) -> io::Result<u16> {
@@ -112,43 +77,3 @@ pub trait LittleEndianReadExt: Read {
 }
 
 impl<R: Read> LittleEndianReadExt for R {}
-
-/// Async version of LIttleEndianReadExt
-#[cfg(feature = "tokio")]
-pub trait AsyncLittleEndianReadExt: AsyncRead + Unpin {
-    fn read_u16_le(&mut self) -> impl Future<Output = io::Result<u16>> + Send
-    where
-        Self: Send,
-    {
-        async {
-            let mut out = [0u8; 2];
-            self.read_exact(&mut out).await?;
-            Ok(u16::from_le_bytes(out))
-        }
-    }
-
-    fn read_u32_le(&mut self) -> impl Future<Output = io::Result<u32>> + Send
-    where
-        Self: Send,
-    {
-        async {
-            let mut out = [0u8; 4];
-            self.read_exact(&mut out).await?;
-            Ok(u32::from_le_bytes(out))
-        }
-    }
-
-    fn read_u64_le(&mut self) -> impl Future<Output = io::Result<u64>> + Send
-    where
-        Self: Send,
-    {
-        async {
-            let mut out = [0u8; 8];
-            self.read_exact(&mut out).await?;
-            Ok(u64::from_le_bytes(out))
-        }
-    }
-}
-
-#[cfg(feature = "tokio")]
-impl<R: AsyncRead + Unpin> AsyncLittleEndianReadExt for R {}
