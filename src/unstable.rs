@@ -3,11 +3,6 @@
 use std::io;
 use std::io::{Read, Write};
 
-#[cfg(feature = "tokio")]
-use std::future::Future;
-#[cfg(feature = "tokio")]
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-
 /// Provides high level API for reading from a stream.
 pub mod stream {
     pub use crate::read::stream::*;
