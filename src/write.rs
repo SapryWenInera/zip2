@@ -1347,6 +1347,7 @@ impl<W: Write + Seek> ZipWriter<W> {
             self.abort_file().unwrap();
             return Err(e.into());
         }
+        self.writing_raw = false;
         self.finish_file()?;
 
         Ok(())
@@ -2469,5 +2470,32 @@ mod test {
         writer.write_all(&[255, 255, 44, 255, 0]).unwrap();
         let written = writer.finish().unwrap();
         let _ = ZipWriter::new_append(written).unwrap();
+    }
+
+    #[cfg(all(feature = "_deflate-any", feature = "aes-crypto"))]
+    #[test]
+    fn test_fuzz_failure_2024_05_08() -> ZipResult<()> {
+        let mut first_writer = ZipWriter::new(Cursor::new(Vec::new()));
+        let mut second_writer = ZipWriter::new(Cursor::new(Vec::new()));
+        let options = SimpleFileOptions::default()
+            .compression_method(Stored)
+            .with_alignment(46036);
+        second_writer.add_symlink("\0", "", options)?;
+        let second_archive = second_writer.finish_into_readable()?.into_inner();
+        let mut second_writer = ZipWriter::new_append(second_archive)?;
+        let options = SimpleFileOptions::default()
+            .compression_method(CompressionMethod::Deflated)
+            .large_file(true)
+            .with_alignment(46036)
+            .with_aes_encryption(crate::AesMode::Aes128, "\0\0");
+        second_writer.add_symlink("", "", options)?;
+        let second_archive = second_writer.finish_into_readable()?.into_inner();
+        let mut second_writer = ZipWriter::new_append(second_archive)?;
+        let options = SimpleFileOptions::default().compression_method(Stored);
+        second_writer.start_file(" ", options)?;
+        let second_archive = second_writer.finish_into_readable()?;
+        first_writer.merge_archive(second_archive)?;
+        let _ = ZipArchive::new(first_writer.finish()?)?;
+        Ok(())
     }
 }
