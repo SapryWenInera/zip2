@@ -287,7 +287,7 @@ where
         T: AsyncRead + Unpin,
     {
         let magic = reader.read_u32_le().await?;
-        if !magic.eq(&CENTRAL_DIRECTORY_END_SIGNATURE) {
+        if magic != CENTRAL_DIRECTORY_END_SIGNATURE {
             return Err(ZipError::InvalidArchive("Invalid digital signature header"));
         }
         let disk_number = reader.read_u16_le().await?;
@@ -320,18 +320,14 @@ where
         const BYTES_BETWEEN_MAGIC_AND_COMMENT_SIZE: u64 = HEADER_SIZE - 6;
         let file_lenght = reader.seek(tokio::io::SeekFrom::End(0)).await?;
         let search_upper_bound = file_lenght.saturating_add(MAX_HEADER_AND_COMMENT_SIZE);
-        if file_lenght.lt(&HEADER_SIZE) {
+        if file_lenght < HEADER_SIZE {
             return Err(ZipError::InvalidArchive("Invalid zip header"));
         }
 
         let mut pos = file_lenght - HEADER_SIZE;
-        while pos.ge(&search_upper_bound) {
+        while pos >= search_upper_bound {
             reader.seek(tokio::io::SeekFrom::Start(pos)).await?;
-            if reader
-                .read_u32_le()
-                .await?
-                .eq(&CENTRAL_DIRECTORY_END_SIGNATURE)
-            {
+            if reader.read_u32_le().await? == CENTRAL_DIRECTORY_END_SIGNATURE {
                 reader
                     .seek(tokio::io::SeekFrom::Current(
                         BYTES_BETWEEN_MAGIC_AND_COMMENT_SIZE as i64,
@@ -386,7 +382,7 @@ impl AsyncZip64CentralDirectoryEndLocator {
         T: AsyncRead + Unpin,
     {
         let magic = reader.read_u32_le().await?;
-        if !magic.eq(&ZIP64_CENTRAL_DIRECTORY_END_LOCATOR_SIGNATURE) {
+        if magic != ZIP64_CENTRAL_DIRECTORY_END_LOCATOR_SIGNATURE {
             return Err(ZipError::InvalidArchive(
                 "Invalid zip64 locator digital signature header",
             ));
@@ -445,14 +441,10 @@ impl AsyncZip64CentralDirectoryEnd {
         let mut results = Vec::new();
         let mut pos = search_upper_bound;
 
-        while pos.ge(&nominal_offset) {
+        while pos >= nominal_offset {
             reader.seek(tokio::io::SeekFrom::Start(pos)).await?;
 
-            if reader
-                .read_u32_le()
-                .await?
-                .eq(&ZIP64_CENTRAL_DIRECTORY_END_LOCATOR_SIGNATURE)
-            {
+            if reader.read_u32_le().await? == ZIP64_CENTRAL_DIRECTORY_END_LOCATOR_SIGNATURE {
                 let archive_offset = pos - nominal_offset;
 
                 let _record_size = reader.read_u64_le().await?;
@@ -479,7 +471,7 @@ impl AsyncZip64CentralDirectoryEnd {
                     archive_offset,
                 ));
             }
-            if pos.gt(&0) {
+            if pos > 0 {
                 pos -= 1
             } else {
                 break;
