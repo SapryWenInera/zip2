@@ -3,7 +3,6 @@ use crate::unstable::{LittleEndianReadExt, LittleEndianWriteExt};
 use std::borrow::Cow;
 use std::io;
 use std::io::prelude::*;
-use std::ops::Deref;
 use std::path::{Component, Path, MAIN_SEPARATOR};
 use std::sync::Arc;
 #[cfg(feature = "tokio")]
@@ -283,7 +282,10 @@ impl AsyncCentralDirectoryEnd
 where
     Self: Send,
 {
-    pub async fn parse<T: AsyncRead + Unpin + Send>(reader: &mut T) -> ZipResult<Self> {
+    pub async fn parse<T>(reader: &mut T) -> ZipResult<Self>
+    where
+        T: AsyncRead + Unpin,
+    {
         let magic = reader.read_u32_le().await?;
         if !magic.eq(&CENTRAL_DIRECTORY_END_SIGNATURE) {
             return Err(ZipError::InvalidArchive("Invalid digital signature header"));
@@ -309,9 +311,10 @@ where
         })
     }
 
-    pub async fn find_and_parse<T: AsyncRead + Unpin + Send + AsyncSeek>(
-        reader: &mut T,
-    ) -> ZipResult<(Self, u64)> {
+    pub async fn find_and_parse<T>(reader: &mut T) -> ZipResult<(Self, u64)>
+    where
+        T: AsyncRead + AsyncSeek + Unpin + Send,
+    {
         const HEADER_SIZE: u64 = 22;
         const MAX_HEADER_AND_COMMENT_SIZE: u64 = 66000;
         const BYTES_BETWEEN_MAGIC_AND_COMMENT_SIZE: u64 = HEADER_SIZE - 6;
@@ -377,11 +380,11 @@ pub struct AsyncZip64CentralDirectoryEndLocator {
 }
 
 #[cfg(feature = "tokio")]
-impl AsyncZip64CentralDirectoryEndLocator
-where
-    Self: Send,
-{
-    async fn parse<T: AsyncRead + Unpin + Send>(reader: &mut T) -> ZipResult<Self> {
+impl AsyncZip64CentralDirectoryEndLocator {
+    async fn parse<T>(reader: &mut T) -> ZipResult<Self>
+    where
+        T: AsyncRead + Unpin,
+    {
         let magic = reader.read_u32_le().await?;
         if !magic.eq(&ZIP64_CENTRAL_DIRECTORY_END_LOCATOR_SIGNATURE) {
             return Err(ZipError::InvalidArchive(
@@ -399,7 +402,10 @@ where
         })
     }
 
-    async fn write<T: AsyncWrite + Unpin + Send>(&self, writer: &mut T) -> ZipResult<()> {
+    async fn write<T>(&self, writer: &mut T) -> ZipResult<()>
+    where
+        T: AsyncWrite + Unpin,
+    {
         writer
             .write_u32_le(ZIP64_CENTRAL_DIRECTORY_END_LOCATOR_SIGNATURE)
             .await?;
@@ -427,15 +433,15 @@ pub struct AsyncZip64CentralDirectoryEnd {
 }
 
 #[cfg(feature = "tokio")]
-impl AsyncZip64CentralDirectoryEnd
-where
-    Self: Send,
-{
-    pub async fn find_and_parse<T: AsyncRead + AsyncSeek + Unpin + Send>(
+impl AsyncZip64CentralDirectoryEnd {
+    pub async fn find_and_parse<T>(
         reader: &mut T,
         nominal_offset: u64,
         search_upper_bound: u64,
-    ) -> ZipResult<Arc<[(Self, u64)]>> {
+    ) -> ZipResult<Arc<[(Self, u64)]>>
+    where
+        T: AsyncRead + AsyncSeek + Unpin,
+    {
         let mut results = Vec::new();
         let mut pos = search_upper_bound;
 
@@ -459,39 +465,52 @@ where
                 let central_directory_size = reader.read_u64_le().await?;
                 let central_directory_offset = reader.read_u64_le().await?;
 
-                results.push((Self {
-                    version_made_by,
-                    version_needed_to_extract,
-                    disk_number,
-                    disk_with_central_directory,
-                    number_of_files_on_this_disk,
-                    number_of_files,
-                    central_directory_size,
-                    central_directory_offset
-                },
-            archive_offset));
+                results.push((
+                    Self {
+                        version_made_by,
+                        version_needed_to_extract,
+                        disk_number,
+                        disk_with_central_directory,
+                        number_of_files_on_this_disk,
+                        number_of_files,
+                        central_directory_size,
+                        central_directory_offset,
+                    },
+                    archive_offset,
+                ));
             }
             if pos.gt(&0) {
                 pos -= 1
             } else {
-                break
+                break;
             }
         }
         if results.is_empty() {
-            Err(ZipError::InvalidArchive("Could not find ZIP64 central directory end"))
+            Err(ZipError::InvalidArchive(
+                "Could not find ZIP64 central directory end",
+            ))
         } else {
             Ok(Arc::from(results))
         }
     }
 
-    pub async fn write<T: AsyncWrite + Unpin + Send>(&self, writer: &mut T) -> ZipResult<()> {
-        writer.write_u32_le(ZIP64_CENTRAL_DIRECTORY_END_LOCATOR_SIGNATURE).await?;
+    pub async fn write<T>(&self, writer: &mut T) -> ZipResult<()>
+    where
+        T: AsyncWrite + Unpin,
+    {
+        writer
+            .write_u32_le(ZIP64_CENTRAL_DIRECTORY_END_LOCATOR_SIGNATURE)
+            .await?;
         writer.write_u64_le(44).await?; // record size *_record_dize
         writer.write_u16_le(self.version_made_by).await?;
         writer.write_u16_le(self.version_needed_to_extract).await?;
         writer.write_u32_le(self.disk_number).await?;
-        writer.write_u32_le(self.disk_with_central_directory).await?;
-        writer.write_u64_le(self.number_of_files_on_this_disk).await?;
+        writer
+            .write_u32_le(self.disk_with_central_directory)
+            .await?;
+        writer
+            .write_u64_le(self.number_of_files_on_this_disk)
+            .await?;
         writer.write_u64_le(self.number_of_files).await?;
         writer.write_u64_le(self.central_directory_size).await?;
         writer.write_u64_le(self.central_directory_offset).await?;
