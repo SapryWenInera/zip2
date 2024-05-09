@@ -1,6 +1,8 @@
 use crate::result::{ZipError, ZipResult};
 use crate::unstable::LittleEndianReadExt;
 use std::io::Read;
+#[cfg(feature = "tokio")]
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 /// extended timestamp, as described in <https://libzip.org/specifications/extrafld.txt>
 
@@ -83,5 +85,59 @@ impl ExtendedTimestamp {
     /// returns the creation timestamp
     pub fn cr_time(&self) -> Option<&u32> {
         self.cr_time.as_ref()
+    }
+}
+
+#[cfg(feature = "tokio")]
+pub struct AsyncExtendedTimestamp {
+    pub mod_time: Option<u32>,
+    pub ac_time: Option<u32>,
+    pub cr_time: Option<u32>,
+}
+
+#[cfg(feature = "tokio")]
+impl AsyncExtendedTimestamp {
+    pub async fn try_from_reader<R>(reader: &mut R, len: u16) -> ZipResult<Self>
+    where
+        R: AsyncRead + Unpin,
+    {
+        let mut flags = [0u8];
+        reader.read_exact(&mut flags).await?;
+        let flags = flags[0];
+
+        if len != 5 && len as u32 != 1 + 4 * flags.count_ones() {
+            return Err(ZipError::UnsupportedArchive(
+                "flags and len don't match in extended timestamp field",
+            ));
+        }
+
+        if flags & 0b11111000 != 0 {
+            return Err(ZipError::UnsupportedArchive(
+                "found unsupported timestamps in the extended timestamp header",
+            ));
+        }
+
+        let mod_time = if (flags & 0b00000001u8 == 0b00000001u8) || len == 5 {
+            Some(reader.read_u32_le().await?)
+        } else {
+            None
+        };
+
+        let ac_time = if flags & 0b00000010u8 == 0b00000010u8 && len > 5 {
+            Some(reader.read_u32_le().await?)
+        } else {
+            None
+        };
+
+        let cr_time = if flags & 0b00000100u8 == 0b00000100u8 && len > 5 {
+            Some(reader.read_u32_le().await?)
+        } else {
+            None
+        };
+        Ok(Self {
+            mod_time,
+            ac_time,
+            cr_time
+        })
     }
 }
