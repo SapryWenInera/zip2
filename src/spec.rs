@@ -1,5 +1,6 @@
 use crate::result::{ZipError, ZipResult};
 use crate::unstable::{LittleEndianReadExt, LittleEndianWriteExt};
+use core::mem::size_of_val;
 use std::borrow::Cow;
 use std::io;
 use std::io::prelude::*;
@@ -24,7 +25,7 @@ pub struct CentralDirectoryEnd {
     pub number_of_files: u16,
     pub central_directory_size: u32,
     pub central_directory_offset: u32,
-    pub zip_file_comment: Vec<u8>,
+    pub zip_file_comment: Box<[u8]>,
 }
 
 impl CentralDirectoryEnd {
@@ -40,7 +41,7 @@ impl CentralDirectoryEnd {
         let central_directory_size = reader.read_u32_le()?;
         let central_directory_offset = reader.read_u32_le()?;
         let zip_file_comment_length = reader.read_u16_le()? as usize;
-        let mut zip_file_comment = vec![0; zip_file_comment_length];
+        let mut zip_file_comment = vec![0; zip_file_comment_length].into_boxed_slice();
         reader.read_exact(&mut zip_file_comment)?;
 
         Ok(CentralDirectoryEnd {
@@ -68,8 +69,10 @@ impl CentralDirectoryEnd {
 
         let mut pos = file_length - HEADER_SIZE;
         while pos >= search_upper_bound {
+            let mut have_signature = false;
             reader.seek(io::SeekFrom::Start(pos))?;
             if reader.read_u32_le()? == CENTRAL_DIRECTORY_END_SIGNATURE {
+                have_signature = true;
                 reader.seek(io::SeekFrom::Current(
                     BYTES_BETWEEN_MAGIC_AND_COMMENT_SIZE as i64,
                 ))?;
@@ -78,7 +81,11 @@ impl CentralDirectoryEnd {
                     return Ok((end_header, cde_start_pos));
                 }
             }
-            pos = match pos.checked_sub(1) {
+            pos = match pos.checked_sub(if have_signature {
+                size_of_val(&CENTRAL_DIRECTORY_END_SIGNATURE) as u64
+            } else {
+                1
+            }) {
                 Some(p) => p,
                 None => break,
             };
@@ -158,9 +165,10 @@ impl Zip64CentralDirectoryEnd {
         let mut pos = search_upper_bound;
 
         while pos >= nominal_offset {
+            let mut have_signature = false;
             reader.seek(io::SeekFrom::Start(pos))?;
-
             if reader.read_u32_le()? == ZIP64_CENTRAL_DIRECTORY_END_SIGNATURE {
+                have_signature = true;
                 let archive_offset = pos - nominal_offset;
 
                 let _record_size = reader.read_u64_le()?;
@@ -189,10 +197,13 @@ impl Zip64CentralDirectoryEnd {
                     archive_offset,
                 ));
             }
-            if pos > 0 {
-                pos -= 1;
+            pos = match pos.checked_sub(if have_signature {
+                size_of_val(&ZIP64_CENTRAL_DIRECTORY_END_SIGNATURE) as u64
             } else {
-                break;
+                1
+            }) {
+                None => break,
+                Some(p) => p,
             }
         }
         if results.is_empty() {
